@@ -5,6 +5,7 @@ import { ProcessingStatus } from "@/components/processing-status"
 import { UrlList } from "@/components/url-list"
 import { CacheStats } from "@/components/cache-stats"
 import { Skeleton } from "@/components/ui/skeleton"
+import { LangCacheSearch } from "@/components/langcache-search"
 
 export default function DashboardPage() {
   return (
@@ -19,20 +20,18 @@ export default function DashboardPage() {
             <SitemapForm />
           </section>
 
-          {/* Processing Status Section */}
-          <section>
-            <h2 className="text-2xl font-semibold mb-4 text-balance">Processing Status</h2>
-            <Suspense fallback={<Skeleton className="h-48 w-full" />}>
-              <ProcessingStatus />
-            </Suspense>
-          </section>
-
           {/* Cache Statistics Section */}
           <section>
             <h2 className="text-2xl font-semibold mb-4 text-balance">Cache Statistics</h2>
             <Suspense fallback={<Skeleton className="h-32 w-full" />}>
               <CacheStats />
             </Suspense>
+          </section>
+
+          {/* LangCache Search Section */}
+          <section>
+            <h2 className="text-2xl font-semibold mb-4 text-balance">Search Cached Content</h2>
+            <LangCacheSearch />
           </section>
 
           {/* URL List Section */}

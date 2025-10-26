@@ -1,6 +1,6 @@
-# Web Application Architecture - Sitemap Processor
+# LangCache Search Proto
 
-A comprehensive web application that parses website sitemaps, indexes URLs into Redis, scrapes page content, converts to Markdown, and caches AI-generated prompts and responses using LangCache.
+A web app that parses website sitemaps, indexes URLs into Redis, scrapes page content, converts to Markdown, and caches prompts and responses using LangCache to generate a searchable index. It's attempting to hack embedding to build a quick helpful search. We'll see if it works :D
 
 ## Features
 

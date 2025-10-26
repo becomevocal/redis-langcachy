@@ -1,14 +1,34 @@
 import { Card } from "@/components/ui/card"
 import { Database, Zap, TrendingUp } from "lucide-react"
+import { RedisService } from "@/lib/services/redis-service"
 
-// This would fetch real data from your API
 async function getCacheStats() {
-  // Placeholder data - replace with actual API call
+  const redisService = new RedisService()
+
+  const domains = await redisService.getDomains()
+  if (domains.length === 0) {
+    return {
+      totalUrls: 0,
+      cachedPrompts: 0,
+      cachedResponses: 0,
+      cacheHitRate: 0,
+    }
+  }
+
+  const totalUrls = await Promise.all(domains.map((domain) => redisService.getUrlCount(domain))).then((results) =>
+    results.reduce((sum, count) => sum + count, 0),
+  )
+
+  const cachedPrompts = await redisService.countKeys("prompt:*")
+  const cachedResponses = await redisService.countKeys("response:*")
+
+  const cacheHitRate = totalUrls > 0 ? Number(((cachedResponses / totalUrls) * 100).toFixed(1)) : 0
+
   return {
-    totalUrls: 150,
-    cachedPrompts: 145,
-    cachedResponses: 142,
-    cacheHitRate: 94.7,
+    totalUrls,
+    cachedPrompts,
+    cachedResponses,
+    cacheHitRate,
   }
 }
 

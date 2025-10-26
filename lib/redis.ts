@@ -153,3 +153,14 @@ export interface ProcessingStatus {
   completedAt?: string
   error?: string
 }
+
+export interface PromptCacheEntry {
+  prompt: string
+  cachedAt: string
+}
+
+export interface ResponseCacheEntry {
+  prompt: string
+  response: string
+  cachedAt: string
+}

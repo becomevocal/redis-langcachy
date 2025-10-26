@@ -1,6 +1,7 @@
 import TurndownService from "turndown"
 import { JSDOM } from "jsdom"
 import { RedisService } from "./redis-service"
+import { LangCacheService } from "./langcache-service"
 import type { PageContent } from "@/lib/redis"
 import { hashUrl } from "@/lib/utils/hash"
 
@@ -27,9 +28,11 @@ export interface ScrapingResult {
 export class PageScraper {
   private redisService: RedisService
   private turndownService: TurndownService
+  private langCacheService: LangCacheService
 
   constructor() {
     this.redisService = new RedisService()
+    this.langCacheService = new LangCacheService()
     this.turndownService = new TurndownService({
       headingStyle: "atx",
       codeBlockStyle: "fenced",
@@ -417,6 +420,7 @@ export class PageScraper {
     // Check if content is already cached
     const cached = await this.redisService.getPageContent(urlHash)
     if (cached) {
+      await this.langCacheService.indexPageContent(cached)
       return {
         success: true,
         url: cached.url,
@@ -440,6 +444,7 @@ export class PageScraper {
       }
 
       await this.redisService.storePageContent(urlHash, pageContent)
+      await this.langCacheService.indexPageContent(pageContent)
     }
 
     return result

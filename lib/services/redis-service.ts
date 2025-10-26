@@ -5,6 +5,8 @@ import {
   type SitemapMetadata,
   type PageContent,
   type ProcessingStatus,
+  type PromptCacheEntry,
+  type ResponseCacheEntry,
 } from "@/lib/redis"
 import type { RedisClientType } from "redis"
 
@@ -16,6 +18,21 @@ export class RedisService {
       this.redis = await getRedisClient()
     }
     return this.redis
+  }
+
+  /**
+   * Helper to iterate keys matching a pattern and run a callback.
+   */
+  private async scanKeys(pattern: string, onKey?: (key: string) => void): Promise<void> {
+    const client = await this.getClient()
+    const iterator = client.scanIterator({
+      MATCH: pattern,
+    })
+
+    for await (const key of iterator) {
+      const keyString = typeof key === "string" ? key : key.toString()
+      onKey?.(keyString)
+    }
   }
 
   /**
@@ -146,6 +163,108 @@ export class RedisService {
     const client = await this.getClient()
     const listKey = RedisKeys.urlList(domain)
     return await client.zCard(listKey)
+  }
+
+  /**
+   * Store a cached prompt entry
+   */
+  async storePromptCache(urlHash: string, prompt: string): Promise<void> {
+    const client = await this.getClient()
+    const entry: PromptCacheEntry = {
+      prompt,
+      cachedAt: new Date().toISOString(),
+    }
+    await client.set(RedisKeys.promptCache(urlHash), JSON.stringify(entry))
+  }
+
+  /**
+   * Retrieve a cached prompt entry
+   */
+  async getPromptCache(urlHash: string): Promise<PromptCacheEntry | null> {
+    const client = await this.getClient()
+    const data = await client.get(RedisKeys.promptCache(urlHash))
+    if (!data) return null
+
+    try {
+      return JSON.parse(data) as PromptCacheEntry
+    } catch (error) {
+      console.error("[v0] Failed to parse prompt cache:", error)
+      return null
+    }
+  }
+
+  /**
+   * Store a cached response entry
+   */
+  async storeResponseCache(urlHash: string, response: ResponseCacheEntry): Promise<void> {
+    const client = await this.getClient()
+    await client.set(RedisKeys.responseCache(urlHash), JSON.stringify(response))
+  }
+
+  /**
+   * Retrieve a cached response entry
+   */
+  async getResponseCache(urlHash: string): Promise<ResponseCacheEntry | null> {
+    const client = await this.getClient()
+    const data = await client.get(RedisKeys.responseCache(urlHash))
+    if (!data) return null
+
+    try {
+      return JSON.parse(data) as ResponseCacheEntry
+    } catch (error) {
+      console.error("[v0] Failed to parse response cache:", error)
+      return null
+    }
+  }
+
+  /**
+   * Delete cached prompt and response entries
+   */
+  async deletePromptCache(urlHash: string): Promise<void> {
+    const client = await this.getClient()
+    await client.del(RedisKeys.promptCache(urlHash))
+  }
+
+  async deleteResponseCache(urlHash: string): Promise<void> {
+    const client = await this.getClient()
+    await client.del(RedisKeys.responseCache(urlHash))
+  }
+
+  /**
+   * Get all domains that have cached data.
+   */
+  async getDomains(): Promise<string[]> {
+    const domains = new Set<string>()
+
+    await this.scanKeys("urls:*", (key) => {
+      const colonIndex = key.indexOf(":")
+      const domain = colonIndex !== -1 ? key.substring(colonIndex + 1) : key
+      if (domain) {
+        domains.add(domain)
+      }
+    })
+
+    // Fallback to sitemap metadata keys (covers domains before URLs are indexed)
+    await this.scanKeys("sitemap:*", (key) => {
+      const colonIndex = key.indexOf(":")
+      const domain = colonIndex !== -1 ? key.substring(colonIndex + 1) : key
+      if (domain) {
+        domains.add(domain)
+      }
+    })
+
+    return Array.from(domains).sort()
+  }
+
+  /**
+   * Count keys matching a pattern (e.g. prompt caches, response caches).
+   */
+  async countKeys(pattern: string): Promise<number> {
+    let count = 0
+    await this.scanKeys(pattern, () => {
+      count++
+    })
+    return count
   }
 
   /**

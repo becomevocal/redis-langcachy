@@ -1,8 +1,7 @@
 import { LangCache } from "@redis-ai/langcache"
 import { RedisService } from "./redis-service"
-import { hashUrl } from "@/lib/utils/hash"
-import type { PageContent } from "@/lib/redis"
-import { getRedisClient } from "@/lib/redis"
+import { extractDomain, hashUrl } from "@/lib/utils/hash"
+import type { PageContent, ResponseCacheEntry } from "@/lib/redis"
 
 export interface PromptData {
   pageName: string
@@ -19,27 +18,85 @@ export interface CachedResponse {
   fromCache: boolean
 }
 
+export interface LangCacheSearchResult {
+  id: string
+  url: string
+  pageName: string
+  snippet: string
+  similarity: number
+  prompt: string
+  fetchedAt?: string
+}
+
+interface LangCacheConfig {
+  serverURL: string
+  cacheId: string
+  apiKey: string
+}
+
 export class LangCacheService {
   private langCache: LangCache | null = null
   private redisService: RedisService
+  private config: LangCacheConfig | null = null
+  private missingConfigLogged = false
 
   constructor() {
     this.redisService = new RedisService()
   }
 
-  private async getLangCache(): Promise<LangCache> {
-    if (!this.langCache) {
-      // Get the Redis client instance
-      const redisClient = await getRedisClient()
+  private loadConfig(): LangCacheConfig | null {
+    if (this.config) return this.config
 
-      // Initialize LangCache with the Redis client
+    const apiKey = process.env.LANGCACHE_API_KEY
+    if (!apiKey) {
+      return null
+    }
+
+    const serverURL = process.env.LANGCACHE_SERVER_URL || "https://gcp-us-east4.langcache.redis.io"
+    const cacheId = process.env.LANGCACHE_CACHE_ID || "477bdd847aa841ffa2852797d215dfc4"
+
+    this.config = {
+      serverURL,
+      cacheId,
+      apiKey,
+    }
+
+    return this.config
+  }
+
+  private async getLangCacheClient(): Promise<LangCache> {
+    if (!this.langCache) {
+      const config = this.loadConfig()
+      if (!config) {
+        throw new Error(
+          "LangCache configuration missing: please set LANGCACHE_API_KEY (and optionally LANGCACHE_SERVER_URL, LANGCACHE_CACHE_ID).",
+        )
+      }
+
       this.langCache = new LangCache({
-        redis: redisClient,
-        ttl: 60 * 60 * 24 * 7, // 7 days default TTL
+        serverURL: config.serverURL,
+        cacheId: config.cacheId,
+        apiKey: config.apiKey,
       })
     }
 
     return this.langCache
+  }
+
+  private handleConfigError(error: unknown): boolean {
+    if (
+      error instanceof Error &&
+      error.message.includes("LangCache configuration missing")
+    ) {
+      if (!this.missingConfigLogged) {
+        console.warn(
+          "[v0] LangCache configuration missing; skipping remote LangCache operations. Set LANGCACHE_API_KEY to enable semantic indexing and search.",
+        )
+        this.missingConfigLogged = true
+      }
+      return true
+    }
+    return false
   }
 
   /**
@@ -75,53 +132,44 @@ Please analyze this page content and provide insights about:
    * Cache a prompt using LangCache
    */
   async cachePrompt(url: string, prompt: string): Promise<void> {
-    const langCache = await this.getLangCache()
     const urlHash = hashUrl(url)
-    const cacheKey = `prompt:${urlHash}`
-
-    await langCache.set(cacheKey, prompt)
+    await this.redisService.storePromptCache(urlHash, prompt)
   }
 
   /**
    * Retrieve cached prompt
    */
   async getCachedPrompt(url: string): Promise<string | null> {
-    const langCache = await this.getLangCache()
     const urlHash = hashUrl(url)
-    const cacheKey = `prompt:${urlHash}`
-
-    const cached = await langCache.get(cacheKey)
-    return cached || null
+    const cached = await this.redisService.getPromptCache(urlHash)
+    return cached?.prompt ?? null
   }
 
   /**
    * Cache an AI response using LangCache
    */
   async cacheResponse(url: string, prompt: string, response: string): Promise<void> {
-    const langCache = await this.getLangCache()
     const urlHash = hashUrl(url)
-
-    // Use LangCache's semantic caching for the prompt-response pair
-    await langCache.set(`response:${urlHash}`, {
+    const entry: ResponseCacheEntry = {
       prompt,
       response,
       cachedAt: new Date().toISOString(),
-    })
+    }
+    await this.redisService.storeResponseCache(urlHash, entry)
   }
 
   /**
    * Retrieve cached response
    */
   async getCachedResponse(url: string): Promise<CachedResponse | null> {
-    const langCache = await this.getLangCache()
     const urlHash = hashUrl(url)
-    const cacheKey = `response:${urlHash}`
-
-    const cached = await langCache.get(cacheKey)
+    const cached = await this.redisService.getResponseCache(urlHash)
     if (!cached) return null
 
     return {
-      ...(typeof cached === "string" ? JSON.parse(cached) : cached),
+      prompt: cached.prompt,
+      response: cached.response,
+      cachedAt: cached.cachedAt,
       fromCache: true,
     }
   }
@@ -263,10 +311,9 @@ Please analyze this page content and provide insights about:
    * Clear cache for a specific URL
    */
   async clearCache(url: string): Promise<void> {
-    const langCache = await this.getLangCache()
     const urlHash = hashUrl(url)
-    await langCache.delete(`prompt:${urlHash}`)
-    await langCache.delete(`response:${urlHash}`)
+    await this.redisService.deletePromptCache(urlHash)
+    await this.redisService.deleteResponseCache(urlHash)
   }
 
   /**
@@ -281,7 +328,8 @@ Please analyze this page content and provide insights about:
     let uncached = 0
 
     for (const url of urls) {
-      const response = await this.getCachedResponse(url)
+      const urlHash = hashUrl(url)
+      const response = await this.redisService.getResponseCache(urlHash)
       if (response) {
         cached++
       } else {
@@ -293,6 +341,112 @@ Please analyze this page content and provide insights about:
       total: urls.length,
       cached,
       uncached,
+    }
+  }
+
+  /**
+   * Index page content into LangCache for semantic search.
+   */
+  async indexPageContent(pageContent: PageContent): Promise<void> {
+    try {
+      const langCache = await this.getLangCacheClient()
+      const urlHash = hashUrl(pageContent.url)
+      const domain = extractDomain(pageContent.url)
+
+      // Remove any existing entry for this URL before adding a new one
+      await langCache
+        .deleteQuery({
+          attributes: {
+            type: "page",
+            urlHash,
+          },
+        })
+        .catch(() => {
+          // Ignore delete errors; entry might not exist yet
+        })
+
+      const normalizedMarkdown = pageContent.markdown.trim()
+      if (!normalizedMarkdown) {
+        return
+      }
+
+      const maxPromptLength = 1024
+      const prompt =
+        normalizedMarkdown.length > maxPromptLength
+          ? `${normalizedMarkdown.slice(0, maxPromptLength - 1)}…`
+          : normalizedMarkdown
+
+      const responsePayload = {
+        url: pageContent.url,
+        pageName: pageContent.pageName,
+        markdownSnippet:
+          normalizedMarkdown.length > 2000 ? `${normalizedMarkdown.slice(0, 1997)}...` : normalizedMarkdown,
+        fetchedAt: pageContent.fetchedAt,
+        domain,
+      }
+
+      await langCache.set({
+        prompt,
+        response: JSON.stringify(responsePayload),
+        attributes: {
+          type: "page",
+          url: pageContent.url,
+          urlHash,
+          pageName: pageContent.pageName,
+          domain,
+        },
+      })
+    } catch (error) {
+      if (this.handleConfigError(error)) return
+      console.error("[v0] LangCache indexing failed:", error)
+    }
+  }
+
+  /**
+   * Search indexed LangCache results.
+   */
+  async searchIndexedContent(query: string): Promise<LangCacheSearchResult[]> {
+    try {
+      const langCache = await this.getLangCacheClient()
+      const response = await langCache.search({
+        prompt: query,
+        attributes: {
+          type: "page",
+        },
+      })
+
+      return response.data.map((entry) => {
+        let parsed: {
+          url?: string
+          pageName?: string
+          markdown?: string
+          fetchedAt?: string
+          domain?: string
+        } | null = null
+
+        try {
+          parsed = JSON.parse(entry.response)
+        } catch {
+          parsed = null
+        }
+
+        const content = parsed?.markdownSnippet ?? parsed?.markdown ?? entry.response
+        const snippet = content.length > 280 ? `${content.slice(0, 277)}...` : content
+
+        return {
+          id: entry.id,
+          url: entry.attributes?.url || parsed?.url || "",
+          pageName: entry.attributes?.pageName || parsed?.pageName || "Untitled",
+          snippet,
+          similarity: entry.similarity,
+          prompt: entry.prompt,
+          fetchedAt: parsed?.fetchedAt,
+        }
+      })
+    } catch (error) {
+      if (this.handleConfigError(error)) return []
+      console.error("[v0] LangCache search failed:", error)
+      return []
     }
   }
 }

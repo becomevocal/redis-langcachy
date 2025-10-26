@@ -99,9 +99,6 @@ export function SitemapForm() {
               disabled={isProcessing}
               className="flex-1"
             />
-            <Button type="button" variant="outline" onClick={handleAutoDiscover} disabled={isProcessing || !sitemapUrl}>
-              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            </Button>
             <Button type="submit" disabled={isProcessing || !sitemapUrl}>
               {isProcessing ? (
                 <>

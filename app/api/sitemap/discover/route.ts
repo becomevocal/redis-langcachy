@@ -2,6 +2,9 @@ import { NextResponse } from "next/server"
 import { UrlIndexer } from "@/lib/services/url-indexer"
 import { PageScraper } from "@/lib/services/page-scraper"
 
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
 export async function POST(request: Request) {
   try {
     const { domain } = await request.json()

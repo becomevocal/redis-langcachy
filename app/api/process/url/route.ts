@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 import { AIProcessor } from "@/lib/services/ai-processor"
 
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
 export async function POST(request: Request) {
   try {
     const { url, model, temperature } = await request.json()

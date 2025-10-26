@@ -3,6 +3,9 @@ import { UrlIndexer } from "@/lib/services/url-indexer"
 import { PageScraper } from "@/lib/services/page-scraper"
 import { RedisService } from "@/lib/services/redis-service"
 
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
 export async function POST(request: Request) {
   console.log("[v0] ===== SITEMAP PROCESSING STARTED =====")
 

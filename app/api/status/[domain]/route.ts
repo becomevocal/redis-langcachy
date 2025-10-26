@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 import { RedisService } from "@/lib/services/redis-service"
 
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
 export async function GET(request: Request, { params }: { params: Promise<{ domain: string }> }) {
   try {
     const { domain } = await params

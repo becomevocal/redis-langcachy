@@ -1,31 +1,59 @@
+"use client"
+
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ExternalLink, CheckCircle2, Clock } from "lucide-react"
-import { RedisService } from "@/lib/services/redis-service"
-import type { UrlRecord } from "@/lib/redis"
+import { useEffect, useState } from "react"
 
-async function getUrls(limit = 20): Promise<UrlRecord[]> {
-  const redisService = new RedisService()
-  const domains = await redisService.getDomains()
-
-  if (domains.length === 0) {
-    return []
-  }
-
-  const domainRecords = await Promise.all(domains.map((domain) => redisService.getUrlsByDomain(domain, limit)))
-
-  return domainRecords
-    .flat()
-    .sort((a, b) => {
-      const aTime = a.indexed ? new Date(a.indexed).getTime() : 0
-      const bTime = b.indexed ? new Date(b.indexed).getTime() : 0
-      return bTime - aTime
-    })
-    .slice(0, limit)
+interface UrlRecord {
+  url: string
+  urlHash: string
+  domain: string
+  pageName: string
+  priority?: number
+  lastmod?: string
+  changefreq?: string
+  indexed: string
+  processed: boolean
+  error?: string
 }
 
-export async function UrlList() {
-  const urls = await getUrls()
+export function UrlList() {
+  const [urls, setUrls] = useState<UrlRecord[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchUrls() {
+      try {
+        const response = await fetch("/api/urls/recent?limit=20")
+        if (response.ok) {
+          const data = await response.json()
+          setUrls(data)
+        }
+      } catch (error) {
+        console.error("Failed to fetch URLs:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchUrls()
+    const interval = setInterval(fetchUrls, 10000) // Refresh every 10 seconds
+
+    return () => clearInterval(interval)
+  }, [])
+
+  if (loading) {
+    return (
+      <Card className="p-6">
+        <div className="space-y-3">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-20 bg-muted rounded-lg animate-pulse" />
+          ))}
+        </div>
+      </Card>
+    )
+  }
 
   if (urls.length === 0) {
     return (

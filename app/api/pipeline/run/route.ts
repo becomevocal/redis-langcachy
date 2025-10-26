@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 import { ProcessingPipeline } from "@/lib/services/pipeline"
 
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
 export async function POST(request: Request) {
   try {
     const { sitemapUrl, maxUrls, scrapeDelay, aiDelay, aiModel, aiTemperature } = await request.json()

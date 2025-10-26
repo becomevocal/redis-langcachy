@@ -1,39 +1,57 @@
+"use client"
+
 import { Card } from "@/components/ui/card"
 import { Database, Zap, TrendingUp } from "lucide-react"
-import { RedisService } from "@/lib/services/redis-service"
+import { useEffect, useState } from "react"
 
-async function getCacheStats() {
-  const redisService = new RedisService()
-
-  const domains = await redisService.getDomains()
-  if (domains.length === 0) {
-    return {
-      totalUrls: 0,
-      cachedPrompts: 0,
-      cachedResponses: 0,
-      cacheHitRate: 0,
-    }
-  }
-
-  const totalUrls = await Promise.all(domains.map((domain) => redisService.getUrlCount(domain))).then((results) =>
-    results.reduce((sum, count) => sum + count, 0),
-  )
-
-  const cachedPrompts = await redisService.countKeys("prompt:*")
-  const cachedResponses = await redisService.countKeys("response:*")
-
-  const cacheHitRate = totalUrls > 0 ? Number(((cachedResponses / totalUrls) * 100).toFixed(1)) : 0
-
-  return {
-    totalUrls,
-    cachedPrompts,
-    cachedResponses,
-    cacheHitRate,
-  }
+interface CacheStatsData {
+  totalUrls: number
+  cachedPrompts: number
+  cachedResponses: number
+  cacheHitRate: number
 }
 
-export async function CacheStats() {
-  const stats = await getCacheStats()
+export function CacheStats() {
+  const [stats, setStats] = useState<CacheStatsData>({
+    totalUrls: 0,
+    cachedPrompts: 0,
+    cachedResponses: 0,
+    cacheHitRate: 0,
+  })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        const response = await fetch("/api/stats/overview")
+        if (response.ok) {
+          const data = await response.json()
+          setStats(data)
+        }
+      } catch (error) {
+        console.error("Failed to fetch cache stats:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchStats()
+    const interval = setInterval(fetchStats, 5000) // Refresh every 5 seconds
+
+    return () => clearInterval(interval)
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => (
+          <Card key={i} className="p-6 animate-pulse">
+            <div className="h-16 bg-muted rounded" />
+          </Card>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

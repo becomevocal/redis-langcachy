@@ -9,6 +9,9 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  experimental: {
+    serverComponentsExternalPackages: ['redis', '@redis/client'],
+  },
 }
 
 export default nextConfig

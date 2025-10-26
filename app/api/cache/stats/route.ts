@@ -2,6 +2,9 @@ import { NextResponse } from "next/server"
 import { RedisService } from "@/lib/services/redis-service"
 import { LangCacheService } from "@/lib/services/langcache-service"
 
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
 export async function POST(request: Request) {
   try {
     const { domain } = await request.json()

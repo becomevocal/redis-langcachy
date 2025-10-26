@@ -33,6 +33,13 @@ REDIS_PASSWORD=your-redis-password
 
 # AI Configuration (for AI SDK)
 OPENAI_API_KEY=your-openai-api-key
+
+# LangCache Configuration
+LANGCACHE_API_KEY=your-langcache-api-key
+# Optional overrides (defaults shown)
+# LANGCACHE_SERVER_URL=https://gcp-us-east4.langcache.redis.io
+# LANGCACHE_CACHE_ID=477bdd847aa841ffa2852797d215dfc4
+# LANGCACHE_USE_ATTRIBUTES=false
 \`\`\`
 
 ### Option 2: Redis URL (Alternative)
@@ -43,6 +50,13 @@ REDIS_URL=redis://default:your-password@your-redis-host:port
 
 # AI Configuration (for AI SDK)
 OPENAI_API_KEY=your-openai-api-key
+
+# LangCache Configuration
+LANGCACHE_API_KEY=your-langcache-api-key
+# Optional overrides (defaults shown)
+# LANGCACHE_SERVER_URL=https://gcp-us-east4.langcache.redis.io
+# LANGCACHE_CACHE_ID=477bdd847aa841ffa2852797d215dfc4
+# LANGCACHE_USE_ATTRIBUTES=false
 \`\`\`
 
 **Note**: The application will use explicit host/port configuration if `REDIS_HOST` is provided, otherwise it falls back to `REDIS_URL`.

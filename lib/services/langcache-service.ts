@@ -32,6 +32,7 @@ interface LangCacheConfig {
   serverURL: string
   cacheId: string
   apiKey: string
+  useAttributes: boolean
 }
 
 export class LangCacheService {
@@ -54,11 +55,13 @@ export class LangCacheService {
 
     const serverURL = process.env.LANGCACHE_SERVER_URL || "https://gcp-us-east4.langcache.redis.io"
     const cacheId = process.env.LANGCACHE_CACHE_ID || "477bdd847aa841ffa2852797d215dfc4"
+    const useAttributes = process.env.LANGCACHE_USE_ATTRIBUTES === "true"
 
     this.config = {
       serverURL,
       cacheId,
       apiKey,
+      useAttributes,
     }
 
     return this.config
@@ -349,32 +352,41 @@ Please analyze this page content and provide insights about:
    */
   async indexPageContent(pageContent: PageContent): Promise<void> {
     try {
+      const config = this.loadConfig()
       const langCache = await this.getLangCacheClient()
       const urlHash = hashUrl(pageContent.url)
       const domain = extractDomain(pageContent.url)
 
       // Remove any existing entry for this URL before adding a new one
-      await langCache
-        .deleteQuery({
-          attributes: {
-            type: "page",
-            urlHash,
-          },
-        })
-        .catch(() => {
-          // Ignore delete errors; entry might not exist yet
-        })
+      if (config?.useAttributes) {
+        await langCache
+          .deleteQuery({
+            attributes: {
+              type: "page",
+              urlHash,
+            },
+          })
+          .catch(() => {
+            // Ignore delete errors; entry might not exist yet
+          })
+      }
 
       const normalizedMarkdown = pageContent.markdown.trim()
       if (!normalizedMarkdown) {
         return
       }
 
+      const promptSource = pageContent.pageName || pageContent.url || "Untitled Page"
+      const normalizedPrompt = promptSource.trim()
+      if (!normalizedPrompt) {
+        return
+      }
+
       const maxPromptLength = 1024
       const prompt =
-        normalizedMarkdown.length > maxPromptLength
-          ? `${normalizedMarkdown.slice(0, maxPromptLength - 1)}…`
-          : normalizedMarkdown
+        normalizedPrompt.length > maxPromptLength
+          ? `${normalizedPrompt.slice(0, maxPromptLength - 1)}…`
+          : normalizedPrompt
 
       const responsePayload = {
         url: pageContent.url,
@@ -385,17 +397,35 @@ Please analyze this page content and provide insights about:
         domain,
       }
 
-      await langCache.set({
+      const setPayload = {
         prompt,
         response: JSON.stringify(responsePayload),
-        attributes: {
+      } as {
+        prompt: string
+        response: string
+        attributes?: Record<string, string>
+      }
+
+      if (config?.useAttributes && (pageContent.pageName || pageContent.url || domain)) {
+        setPayload.attributes = {
+          ...(pageContent.pageName ? { pageName: pageContent.pageName } : {}),
+          ...(pageContent.url ? { url: pageContent.url } : {}),
+          ...(domain ? { domain } : {}),
           type: "page",
-          url: pageContent.url,
           urlHash,
-          pageName: pageContent.pageName,
-          domain,
-        },
+        }
+      }
+
+      console.log("[v0] LangCache indexing payload:", {
+        promptLength: setPayload.prompt.length,
+        hasAttributes: Boolean(setPayload.attributes),
+        attributes: setPayload.attributes,
+        responsePreview: responsePayload.markdownSnippet.slice(0, 120),
+        promptPreview: setPayload.prompt.slice(0, 120),
+        responsePayload,
       })
+
+      await langCache.set(setPayload)
     } catch (error) {
       if (this.handleConfigError(error)) return
       console.error("[v0] LangCache indexing failed:", error)
@@ -407,12 +437,30 @@ Please analyze this page content and provide insights about:
    */
   async searchIndexedContent(query: string): Promise<LangCacheSearchResult[]> {
     try {
+      const config = this.loadConfig()
       const langCache = await this.getLangCacheClient()
       const response = await langCache.search({
         prompt: query,
-        attributes: {
-          type: "page",
-        },
+        ...(config?.useAttributes
+          ? {
+              attributes: {
+                type: "page",
+              },
+            }
+          : {}),
+      })
+
+      console.log("[v0] LangCache search request:", {
+        query,
+        usingAttributes: Boolean(config?.useAttributes),
+        resultCount: response.data.length,
+        firstResult: response.data[0]
+          ? {
+              id: response.data[0].id,
+              similarity: response.data[0].similarity,
+              hasAttributes: Boolean(response.data[0].attributes),
+            }
+          : null,
       })
 
       return response.data.map((entry) => {

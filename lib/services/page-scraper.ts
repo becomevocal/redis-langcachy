@@ -10,6 +10,8 @@ export interface ScrapingOptions {
   delayBetweenRequests?: number
   includeMetadata?: boolean
   cleanHtml?: boolean
+  useJinaReader?: boolean // Use Jina AI Reader API as primary method
+  useBrowser?: boolean // Use headless browser for JS-heavy sites
 }
 
 export interface ScrapingResult {
@@ -19,6 +21,7 @@ export interface ScrapingResult {
   markdown?: string
   contentLength?: number
   error?: string
+  method?: "jina" | "browser" | "fetch" // Which method was used
 }
 
 export class PageScraper {
@@ -75,25 +78,188 @@ export class PageScraper {
   }
 
   /**
-   * Fetch and scrape a single page
+   * Scrape using Jina AI Reader API (bypasses most anti-bot protection)
+   */
+  private async scrapeWithJina(url: string): Promise<ScrapingResult> {
+    try {
+      console.log("[v0] Attempting to scrape with Jina AI Reader:", url)
+
+      // Jina AI Reader converts any URL to markdown
+      const jinaUrl = `https://r.jina.ai/${encodeURIComponent(url)}`
+
+      const response = await fetch(jinaUrl, {
+        headers: {
+          Accept: "text/markdown",
+          "X-Return-Format": "markdown",
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`Jina API returned ${response.status}`)
+      }
+
+      const markdown = await response.text()
+
+      // Extract page name from first heading or use URL
+      const firstHeading = markdown.match(/^#\s+(.+)$/m)
+      const pageName = firstHeading ? firstHeading[1] : new URL(url).pathname.split("/").pop() || "Untitled"
+
+      console.log("[v0] Successfully scraped with Jina:", url)
+
+      return {
+        success: true,
+        url,
+        pageName,
+        markdown,
+        contentLength: markdown.length,
+        method: "jina",
+      }
+    } catch (error) {
+      console.error("[v0] Jina scraping failed:", error)
+      return {
+        success: false,
+        url,
+        pageName: "Unknown",
+        error: `Jina scraping failed: ${(error as Error).message}`,
+        method: "jina",
+      }
+    }
+  }
+
+  /**
+   * Scrape using headless browser (Playwright) for JS-heavy sites
+   */
+  private async scrapeWithBrowser(url: string, timeout = 30000): Promise<ScrapingResult> {
+    try {
+      console.log("[v0] Attempting to scrape with headless browser:", url)
+
+      // Dynamic import of playwright
+      const { chromium } = await import("playwright")
+
+      const browser = await chromium.launch({
+        headless: true,
+      })
+
+      const context = await browser.newContext({
+        userAgent:
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        viewport: { width: 1920, height: 1080 },
+        locale: "en-US",
+      })
+
+      const page = await context.newPage()
+
+      // Navigate to page
+      await page.goto(url, {
+        waitUntil: "networkidle",
+        timeout,
+      })
+
+      // Wait for content to load
+      await page.waitForLoadState("domcontentloaded")
+
+      // Extract content
+      const content = await page.evaluate(() => {
+        const title = document.title
+        const main = document.querySelector("main") || document.querySelector("article") || document.body
+
+        // Remove unwanted elements
+        const unwanted = main?.querySelectorAll(
+          "script, style, noscript, iframe, nav, header, footer, .advertisement, .ads",
+        )
+        unwanted?.forEach((el) => el.remove())
+
+        return {
+          title,
+          html: main?.innerHTML || "",
+        }
+      })
+
+      await browser.close()
+
+      // Convert HTML to markdown
+      const markdown = this.turndownService.turndown(content.html)
+      const cleanMarkdown = markdown.replace(/\n{3,}/g, "\n\n").trim()
+
+      console.log("[v0] Successfully scraped with browser:", url)
+
+      return {
+        success: true,
+        url,
+        pageName: content.title || "Untitled",
+        markdown: `# ${content.title}\n\n**URL:** ${url}\n\n${cleanMarkdown}`,
+        contentLength: cleanMarkdown.length,
+        method: "browser",
+      }
+    } catch (error) {
+      console.error("[v0] Browser scraping failed:", error)
+      return {
+        success: false,
+        url,
+        pageName: "Unknown",
+        error: `Browser scraping failed: ${(error as Error).message}`,
+        method: "browser",
+      }
+    }
+  }
+
+  /**
+   * Fetch and scrape a single page with multiple strategies
    */
   async scrapePage(url: string, options: ScrapingOptions = {}): Promise<ScrapingResult> {
-    const { timeout = 10000, retries = 3, cleanHtml = true, includeMetadata = true } = options
+    const {
+      timeout = 10000,
+      retries = 3,
+      cleanHtml = true,
+      includeMetadata = true,
+      useJinaReader = true, // Default to Jina for best anti-bot protection
+      useBrowser = false,
+    } = options
 
+    console.log("[v0] Starting scrape for:", url)
+
+    // Strategy 1: Try Jina AI Reader first (best for anti-bot)
+    if (useJinaReader) {
+      const jinaResult = await this.scrapeWithJina(url)
+      if (jinaResult.success) {
+        return jinaResult
+      }
+      console.log("[v0] Jina failed, trying next method...")
+    }
+
+    // Strategy 2: Try headless browser if requested
+    if (useBrowser) {
+      const browserResult = await this.scrapeWithBrowser(url, timeout)
+      if (browserResult.success) {
+        return browserResult
+      }
+      console.log("[v0] Browser scraping failed, trying basic fetch...")
+    }
+
+    // Strategy 3: Fallback to basic fetch with better headers
     let lastError: Error | null = null
 
-    // Retry logic
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
-        // Fetch page content
+        console.log(`[v0] Fetch attempt ${attempt + 1}/${retries} for:`, url)
+
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), timeout)
 
         const response = await fetch(url, {
           signal: controller.signal,
           headers: {
-            "User-Agent": "Mozilla/5.0 (compatible; ContentBot/1.0)",
-            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            Connection: "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Cache-Control": "max-age=0",
           },
         })
 
@@ -108,27 +274,37 @@ export class PageScraper {
         // Parse HTML and extract content
         const { markdown, pageName } = this.htmlToMarkdown(html, url, { cleanHtml, includeMetadata })
 
+        console.log("[v0] Successfully scraped with fetch:", url)
+
         return {
           success: true,
           url,
           pageName,
           markdown,
           contentLength: markdown.length,
+          method: "fetch",
         }
       } catch (error) {
         lastError = error as Error
+        console.error(`[v0] Fetch attempt ${attempt + 1} failed:`, lastError.message)
+
         if (attempt < retries - 1) {
           // Wait before retry (exponential backoff)
-          await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)))
+          const delay = 1000 * Math.pow(2, attempt)
+          console.log(`[v0] Waiting ${delay}ms before retry...`)
+          await new Promise((resolve) => setTimeout(resolve, delay))
         }
       }
     }
+
+    console.error("[v0] All scraping methods failed for:", url)
 
     return {
       success: false,
       url,
       pageName: "Unknown",
-      error: lastError?.message || "Unknown error",
+      error: lastError?.message || "All scraping methods failed",
+      method: "fetch",
     }
   }
 

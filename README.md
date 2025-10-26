@@ -1,6 +1,6 @@
-# Langcachy Web Search
+# Langcachy Site Search
 
-A web app that parses website sitemaps, indexes URLs into Redis, scrapes page content, converts to Markdown, and caches prompts and responses using Redis LangCache to generate a searchable index. It's attempting to hack embedding to build a quick helpful (relevant) search.
+A web app that parses a website's sitemap, indexes URLs into Redis, scrapes page content, converts to Markdown, and caches prompts and responses using Redis LangCache to generate a searchable index. It's attempting to hack embedding to build a quick helpful (relevant) search.
 
 ## Features
 

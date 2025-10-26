@@ -1,6 +1,6 @@
-# LangCache Search Proto
+# Langcachy Web Search
 
-A web app that parses website sitemaps, indexes URLs into Redis, scrapes page content, converts to Markdown, and caches prompts and responses using LangCache to generate a searchable index. It's attempting to hack embedding to build a quick helpful search. We'll see if it works :D
+A web app that parses website sitemaps, indexes URLs into Redis, scrapes page content, converts to Markdown, and caches prompts and responses using Redis LangCache to generate a searchable index. It's attempting to hack embedding to build a quick helpful (relevant) search.
 
 ## Features
 
@@ -24,32 +24,22 @@ Create a `.env.local` file with the following variables:
 
 ### Option 1: Redis Cloud (Recommended)
 
-\`\`\`env
+```env
 # Redis Cloud Configuration
 REDIS_HOST=redis-xxxxx.c280.us-central1-2.gce.redns.redis-cloud.com
 REDIS_PORT=10759
 REDIS_USERNAME=default
 REDIS_PASSWORD=your-redis-password
 
-# AI Configuration (for AI SDK)
-OPENAI_API_KEY=your-openai-api-key
-
 # LangCache Configuration
 LANGCACHE_API_KEY=your-langcache-api-key
-# Optional overrides (defaults shown)
-# LANGCACHE_SERVER_URL=https://gcp-us-east4.langcache.redis.io
-# LANGCACHE_CACHE_ID=477bdd847aa841ffa2852797d215dfc4
-# LANGCACHE_USE_ATTRIBUTES=false
-\`\`\`
+```
 
 ### Option 2: Redis URL (Alternative)
 
-\`\`\`env
+```env
 # Redis URL Configuration
 REDIS_URL=redis://default:your-password@your-redis-host:port
-
-# AI Configuration (for AI SDK)
-OPENAI_API_KEY=your-openai-api-key
 
 # LangCache Configuration
 LANGCACHE_API_KEY=your-langcache-api-key
@@ -57,21 +47,21 @@ LANGCACHE_API_KEY=your-langcache-api-key
 # LANGCACHE_SERVER_URL=https://gcp-us-east4.langcache.redis.io
 # LANGCACHE_CACHE_ID=477bdd847aa841ffa2852797d215dfc4
 # LANGCACHE_USE_ATTRIBUTES=false
-\`\`\`
+```
 
 **Note**: The application will use explicit host/port configuration if `REDIS_HOST` is provided, otherwise it falls back to `REDIS_URL`.
 
 ## Installation
 
-\`\`\`bash
+```bash
 npm install
-\`\`\`
+```
 
 ## Development
 
-\`\`\`bash
+```bash
 npm run dev
-\`\`\`
+```
 
 Open [http://localhost:3000](http://localhost:3000) to access the admin dashboard.
 
@@ -90,7 +80,7 @@ Open [http://localhost:3000](http://localhost:3000) to access the admin dashboar
 
 ### Redis Data Structure
 
-\`\`\`
+```
 sitemap:{domain}          - Sitemap metadata
 urls:{domain}             - Sorted set of URL hashes
 url:{urlHash}             - Individual URL record
@@ -98,7 +88,7 @@ content:{urlHash}         - Page content (Markdown)
 prompt:{urlHash}          - Cached prompt
 response:{urlHash}        - Cached AI response
 status:{domain}           - Processing status
-\`\`\`
+```
 
 ### Key Components
 
@@ -134,11 +124,11 @@ status:{domain}           - Processing status
 
 ### Run Complete Pipeline
 
-\`\`\`bash
+```bash
 curl -X POST http://localhost:3000/api/pipeline/run \
   -H "Content-Type: application/json" \
   -d '{"domain": "example.com", "sitemapUrl": "https://example.com/sitemap.xml"}'
-\`\`\`
+```
 
 ## Performance Considerations
 
